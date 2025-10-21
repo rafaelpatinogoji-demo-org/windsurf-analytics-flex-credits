@@ -1,0 +1,10 @@
+# Team Flex Credits - Required Dependencies
+
+# Core dependencies
+requests>=2.31.0          # HTTP library for API calls
+python-dotenv>=1.0.0      # Load environment variables from .env
+tqdm>=4.66.0              # Progress bars for parallel processing
+questionary>=2.0.0        # Beautiful interactive CLI prompts
+
+# Optional but recommended
+pandas>=2.0.0             # For data analysis (if needed)
