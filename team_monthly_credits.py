@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Flex Credits by Model - Daily Breakdown
-Fast parallel processing showing flex credits usage per model per day.
+Team Monthly Credits Summary
+Aggregate flex credits and prompt credits by month for a date range.
 """
 
 import os
@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
-# Define output directory - local to TeamFlexCredits
+# Define output directory
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'output')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -27,34 +27,6 @@ if not SERVICE_KEY:
 
 API_URL = "https://server.codeium.com/api/v1/Analytics"
 
-# Model name mapping for better readability
-MODEL_NAME_MAPPING = {
-    "MODEL_PRIVATE_1": "Gemini 2.5 Pro (early)",
-    "MODEL_PRIVATE_2": "Claude Sonnet 4.5",
-    "MODEL_PRIVATE_3": "Claude Sonnet 4.5 Thinking",
-    "MODEL_PRIVATE_4": "Grok 4 Code",
-    "MODEL_PRIVATE_5": "GPT-5 Codex",
-    "MODEL_PRIVATE_6": "GPT-5 (low reasoning)",
-    "MODEL_PRIVATE_7": "GPT-5 (medium reasoning)",
-    "MODEL_PRIVATE_8": "GPT-5 (high reasoning)",
-    "MODEL_PRIVATE_9": "Gemini 2.5 Pro (soft-waffle)",
-    "MODEL_PRIVATE_10": "GLM SWE 1.5 Alpha",
-    "MODEL_PRIVATE_11": "Claude Haiku 4.5",
-    # Other common model mappings
-    "MODEL_CLAUDE_3_7_SONNET_20250219": "Claude 3.7 Sonnet",
-    "MODEL_CLAUDE_3_7_SONNET_20250219_THINKING": "Claude 3.7 Sonnet Thinking",
-    "MODEL_CLAUDE_4_SONNET": "Claude 4 Sonnet",
-    "MODEL_GOOGLE_GEMINI_2_5_PRO": "Gemini 2.5 Pro",
-    "MODEL_CHAT_GPT_4_1_2025_04_14": "GPT-4.1 (2025-04-14)",
-    "MODEL_CHAT_GPT_4O_2024_08_06": "GPT-4o (2024-08-06)",
-    "<nil>": "Unknown Model",
-}
-
-
-def get_friendly_model_name(model):
-    """Convert model internal name to friendly display name"""
-    return MODEL_NAME_MAPPING.get(model, model)
-
 
 def parse_date(date_str):
     """Parse date string in YYYY-MM-DD format"""
@@ -64,25 +36,25 @@ def parse_date(date_str):
         raise ValueError(f"Invalid date format: {date_str}. Please use YYYY-MM-DD format.")
 
 
-def get_month_date_range(year, month):
-    """Get start and end dates for a specific month"""
-    start_date = datetime(year, month, 1)
-    if month == 12:
+def get_month_range(year, start_month, end_month):
+    """Get start and end dates for a range of months"""
+    start_date = datetime(year, start_month, 1)
+    
+    if end_month == 12:
         end_date = datetime(year + 1, 1, 1) - timedelta(days=1)
     else:
-        end_date = datetime(year, month + 1, 1) - timedelta(days=1)
+        end_date = datetime(year, end_month + 1, 1) - timedelta(days=1)
+    
     return start_date.strftime("%Y-%m-%d"), end_date.strftime("%Y-%m-%d")
 
 
 def find_latest_email_mapping_file():
-    """Find the latest email_api_mapping file in local output directory, then parent if exists"""
+    """Find the latest email_api_mapping file"""
     import glob
     
-    # First check local output directory
     local_pattern = os.path.join(OUTPUT_DIR, 'email_api_mapping_*.json')
     files = glob.glob(local_pattern)
     
-    # If not found locally, try parent directory
     if not files:
         parent_output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'output')
         if os.path.exists(parent_output_dir):
@@ -108,7 +80,6 @@ def generate_email_api_mapping():
     """Generate email API mapping by fetching from UserPageAnalytics API"""
     print("\n🔄 Generating email API mapping...")
     
-    # Fetch data from last 30 days
     now = datetime.now()
     start_date = now - timedelta(days=30)
     start_timestamp = start_date.strftime("%Y-%m-%dT00:00:00Z")
@@ -125,7 +96,6 @@ def generate_email_api_mapping():
     headers = {"Content-Type": "application/json"}
     
     try:
-        # Show progress while making API request
         with tqdm(total=100, desc="⏳ Requesting data", bar_format='{desc}: {bar}', ncols=50) as pbar:
             response = requests.post(url, json=payload, headers=headers)
             pbar.update(50)
@@ -135,7 +105,6 @@ def generate_email_api_mapping():
         
         email_api_map = {}
         
-        # Extract email-API key pairs from userTableStats
         if "userTableStats" in data and isinstance(data["userTableStats"], list):
             for user in data["userTableStats"]:
                 if "email" in user and user["email"] and "apiKey" in user and user["apiKey"]:
@@ -144,7 +113,6 @@ def generate_email_api_mapping():
         print(f"Found {len(email_api_map)} unique email-API key pairs")
         
         if email_api_map:
-            # Save to local output directory
             current_date = datetime.now().strftime("%Y-%m-%d")
             output_file = os.path.join(OUTPUT_DIR, f"email_api_mapping_{current_date}.json")
             
@@ -172,6 +140,7 @@ def create_payload(api_key, start_date, end_date):
                 "selections": [
                     {"field": "api_key", "name": "api_key"},
                     {"field": "date", "name": "date"},
+                    {"field": "prompts_used", "name": "prompts_used"},
                     {"field": "flex_credits_used", "name": "flex_credits_used"},
                     {"field": "model", "name": "model"}
                 ],
@@ -217,7 +186,6 @@ def fetch_parallel(api_keys, start_date, end_date, max_workers=20):
         futures = {executor.submit(fetch_data_for_api_key, key, start_date, end_date): key 
                    for key in api_keys}
         
-        # Progress bar with tqdm
         with tqdm(total=len(api_keys), desc="📊 Processing users", 
                   unit="user", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
             
@@ -246,146 +214,129 @@ def safe_float(value):
         return 0.0
 
 
-def aggregate_by_date_and_model(items):
-    """Aggregate flex credits by date and model"""
-    # Structure: {date: {model: flex_credits}}
-    daily_model_data = defaultdict(lambda: defaultdict(float))
+def aggregate_by_month(items):
+    """Aggregate items by month (YYYY-MM format)"""
+    monthly_data = defaultdict(lambda: {
+        "total_flex_credits": 0,
+        "total_prompt_credits": 0,
+        "total_credits_used": 0,
+        "data_points": 0
+    })
     
     for item in items:
         date = item.get("date", "")
-        model = item.get("model", "unknown")
-        
         if not date:
             continue
         
-        # Only flex credits (convert from hundredths)
-        flex_credits = safe_float(item.get("flex_credits_used")) / 100
+        # Extract month (YYYY-MM) from date (YYYY-MM-DD)
+        month = date[:7]
         
-        daily_model_data[date][model] += flex_credits
+        flex_credits = safe_float(item.get("flex_credits_used")) / 100
+        prompt_credits = safe_float(item.get("prompts_used")) / 100
+        
+        monthly_data[month]["total_flex_credits"] += flex_credits
+        monthly_data[month]["total_prompt_credits"] += prompt_credits
+        monthly_data[month]["total_credits_used"] += (flex_credits + prompt_credits)
+        monthly_data[month]["data_points"] += 1
     
-    return daily_model_data
+    return monthly_data
 
 
-def format_date_for_display(date_str):
-    """Format date for display"""
+def format_month_for_display(month_str):
+    """Format month as 'September 2025'"""
     try:
-        dt = datetime.strptime(date_str, "%Y-%m-%d")
-        return dt.strftime("%B %d, %Y")
+        dt = datetime.strptime(month_str + "-01", "%Y-%m-%d")
+        return dt.strftime("%B %Y")
     except:
-        return date_str
+        return month_str
 
 
-def save_results(daily_model_data, month_name, year):
+def save_results(monthly_data, start_date, end_date):
     """Save results to CSV"""
-    sorted_dates = sorted(daily_model_data.keys())
+    sorted_months = sorted(monthly_data.keys())
     current_date = datetime.now().strftime("%Y-%m-%d")
     
-    csv_filename = os.path.join(OUTPUT_DIR, f"flex_credits_by_model_{month_name.lower()}_{year}_{current_date}.csv")
+    # Extract period for filename
+    start_month = start_date[:7]
+    end_month = end_date[:7]
+    period_str = f"{start_month}_to_{end_month}".replace("-", "")
     
-    # Prepare rows for CSV
-    rows = []
-    all_models = set()
+    csv_filename = os.path.join(OUTPUT_DIR, f"team_monthly_credits_{period_str}_{current_date}.csv")
     
-    for date in sorted_dates:
-        for model, flex_credits in daily_model_data[date].items():
-            all_models.add(model)
-            friendly_name = get_friendly_model_name(model)
-            rows.append({
-                'event_date': date,
-                'date_formatted': format_date_for_display(date),
-                'model_internal': model,
-                'model_name': friendly_name,
-                'flex_credits': flex_credits
-            })
-    
-    # Sort rows by date, then by flex_credits descending
-    rows.sort(key=lambda x: (x['event_date'], -x['flex_credits']))
-    
-    # Save to CSV
     with open(csv_filename, 'w', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=['event_date', 'date_formatted', 'model_internal', 'model_name', 'flex_credits'])
+        writer = csv.DictWriter(csvfile, fieldnames=[
+            'month', 'month_formatted', 'total_flex_credits', 
+            'total_prompt_credits', 'total_credits_used', 'data_points'
+        ])
         writer.writeheader()
         
-        for row in rows:
+        for month in sorted_months:
+            data = monthly_data[month]
             writer.writerow({
-                'event_date': row['event_date'],
-                'date_formatted': row['date_formatted'],
-                'model_internal': row['model_internal'],
-                'model_name': row['model_name'],
-                'flex_credits': f"{row['flex_credits']:.2f}"
+                'month': month,
+                'month_formatted': format_month_for_display(month),
+                'total_flex_credits': f"{data['total_flex_credits']:.2f}",
+                'total_prompt_credits': f"{data['total_prompt_credits']:.2f}",
+                'total_credits_used': f"{data['total_credits_used']:.2f}",
+                'data_points': data['data_points']
             })
     
     print(f"✅ Report saved: {csv_filename}\n")
     
-    # Print summary by date
-    print("=" * 100)
-    print(f"FLEX CREDITS BY MODEL - {month_name.upper()} {year}")
-    print("=" * 100)
+    # Print summary table
+    print("=" * 120)
+    print(f"TEAM MONTHLY CREDITS SUMMARY")
+    print("=" * 120)
+    print(f"Period: {format_month_for_display(sorted_months[0])} to {format_month_for_display(sorted_months[-1])}")
+    print("=" * 120)
+    print(f"\n{'Month':<20} {'Flex Credits':>18} {'Prompt Credits':>18} {'Total Credits':>18} {'Data Points':>15}")
+    print("-" * 120)
     
-    # Calculate totals per model across all dates
-    model_totals = defaultdict(float)
-    grand_total = 0
+    grand_total_flex = 0
+    grand_total_prompt = 0
+    grand_total_credits = 0
+    grand_total_points = 0
     
-    for date in sorted_dates:
-        date_formatted = format_date_for_display(date)
-        date_total = 0
+    for month in sorted_months:
+        data = monthly_data[month]
+        month_formatted = format_month_for_display(month)
+        print(f"{month_formatted:<20} {data['total_flex_credits']:>18,.2f} {data['total_prompt_credits']:>18,.2f} {data['total_credits_used']:>18,.2f} {data['data_points']:>15,}")
         
-        print(f"\n📅 {date} - {date_formatted}")
-        print("-" * 100)
-        
-        # Sort models by flex credits descending for this date
-        models_for_date = sorted(daily_model_data[date].items(), key=lambda x: -x[1])
-        
-        for model, flex_credits in models_for_date:
-            if flex_credits > 0:  # Only show models with flex credits usage
-                friendly_name = get_friendly_model_name(model)
-                print(f"   {friendly_name:<60} {flex_credits:>15,.2f}")
-                model_totals[model] += flex_credits
-                date_total += flex_credits
-        
-        print(f"   {'DAILY TOTAL':<60} {date_total:>15,.2f}")
-        grand_total += date_total
+        grand_total_flex += data['total_flex_credits']
+        grand_total_prompt += data['total_prompt_credits']
+        grand_total_credits += data['total_credits_used']
+        grand_total_points += data['data_points']
     
-    # Print totals by model
-    print("\n" + "=" * 100)
-    print("TOTALS BY MODEL")
-    print("=" * 100)
+    print("-" * 120)
+    print(f"{'TOTAL':<20} {grand_total_flex:>18,.2f} {grand_total_prompt:>18,.2f} {grand_total_credits:>18,.2f} {grand_total_points:>15,}")
+    print("=" * 120)
     
-    sorted_models = sorted(model_totals.items(), key=lambda x: -x[1])
-    for model, total in sorted_models:
-        friendly_name = get_friendly_model_name(model)
-        percentage = (total / grand_total * 100) if grand_total > 0 else 0
-        print(f"{friendly_name:<60} {total:>15,.2f}  ({percentage:>5.1f}%)")
-    
-    print("-" * 100)
-    print(f"{'GRAND TOTAL':<50} {grand_total:>15,.2f}  (100.0%)")
-    print("=" * 100)
-    
-    # Statistics
     print(f"\n📊 Statistics:")
-    print(f"   - Days with data: {len(sorted_dates)}")
-    print(f"   - Total models used: {len(all_models)}")
-    print(f"   - Total flex credits: {grand_total:,.2f}")
-    if len(sorted_dates) > 0:
-        print(f"   - Avg flex credits/day: {grand_total / len(sorted_dates):,.2f}")
+    print(f"   - Total months with data: {len(sorted_months)}")
+    print(f"   - Total flex credits: {grand_total_flex:,.2f}")
+    print(f"   - Total prompt credits: {grand_total_prompt:,.2f}")
+    print(f"   - Total credits used: {grand_total_credits:,.2f}")
+    if len(sorted_months) > 0:
+        print(f"   - Average credits per month: {grand_total_credits / len(sorted_months):,.2f}")
     
-    days_with_flex = [d for d in sorted_dates if sum(daily_model_data[d].values()) > 0]
-    if days_with_flex:
-        print(f"\n⚠️  Days with flex credits: {len(days_with_flex)}")
+    months_with_flex = [m for m in sorted_months if monthly_data[m]['total_flex_credits'] > 0]
+    if months_with_flex:
+        print(f"\n⚠️  Months with flex credits: {len(months_with_flex)} of {len(sorted_months)}")
     else:
-        print(f"\n✅ No flex credits used in {month_name} {year}")
+        print(f"\n✅ No flex credits used in any month")
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Flex Credits by Model - Daily breakdown per language model',
+        description='Team Monthly Credits - Aggregate by month for date range',
         epilog='Examples:\n'
-               '  python flex_credits_by_model.py --year 2025 --month 9\n'
-               '  python flex_credits_by_model.py --year 2025 --month 9 --workers 50',
+               '  python team_monthly_credits.py --year 2025 --start-month 6 --end-month 10\n'
+               '  python team_monthly_credits.py --start-date 2025-06-01 --end-date 2025-10-31 --workers 50',
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('--year', type=int, help='Year (e.g., 2025)')
-    parser.add_argument('--month', type=int, help='Month (1-12)')
+    parser.add_argument('--start-month', type=int, help='Start month (1-12)')
+    parser.add_argument('--end-month', type=int, help='End month (1-12)')
     parser.add_argument('--start-date', type=str, help='Start date YYYY-MM-DD')
     parser.add_argument('--end-date', type=str, help='End date YYYY-MM-DD')
     parser.add_argument('--workers', type=int, default=20, help='Parallel workers (default: 20)')
@@ -397,24 +348,21 @@ def main():
     if args.start_date and args.end_date:
         start_date = parse_date(args.start_date)
         end_date = parse_date(args.end_date)
-        month_name = datetime.strptime(start_date, "%Y-%m-%d").strftime("%B")
-        year = datetime.strptime(start_date, "%Y-%m-%d").year
-    elif args.year and args.month:
-        if not 1 <= args.month <= 12:
-            print("Error: Month must be 1-12")
+    elif args.year and args.start_month and args.end_month:
+        if not (1 <= args.start_month <= 12 and 1 <= args.end_month <= 12):
+            print("Error: Months must be between 1-12")
             return
-        start_date, end_date = get_month_date_range(args.year, args.month)
-        month_name = datetime(args.year, args.month, 1).strftime("%B")
-        year = args.year
+        if args.start_month > args.end_month:
+            print("Error: Start month must be <= end month")
+            return
+        start_date, end_date = get_month_range(args.year, args.start_month, args.end_month)
     else:
-        print("Using default: September 2025")
-        start_date, end_date = get_month_date_range(2025, 9)
-        month_name = "September"
-        year = 2025
+        print("Error: Must provide either --start-date/--end-date or --year/--start-month/--end-month")
+        return
     
-    print(f"\n{'='*100}")
-    print(f"FLEX CREDITS BY MODEL - {month_name.upper()} {year}")
-    print(f"{'='*100}")
+    print(f"\n{'='*120}")
+    print(f"TEAM MONTHLY CREDITS SUMMARY")
+    print(f"{'='*120}")
     print(f"Date range: {start_date} to {end_date}")
     print(f"Parallel workers: {args.workers}\n")
     
@@ -447,17 +395,17 @@ def main():
         print("❌ No data retrieved")
         return
     
-    # Aggregate by date and model
-    print("📊 Aggregating results by date and model...")
-    daily_model_data = aggregate_by_date_and_model(items)
+    # Aggregate by month
+    print("📊 Aggregating results by month...")
+    monthly_data = aggregate_by_month(items)
     
-    if not daily_model_data:
-        print("❌ No flex credits data found")
+    if not monthly_data:
+        print("❌ No data to aggregate")
         return
     
     # Save and display results
     print("💾 Saving results to CSV...")
-    save_results(daily_model_data, month_name, year)
+    save_results(monthly_data, start_date, end_date)
     
     print(f"\n✨ Complete!")
 

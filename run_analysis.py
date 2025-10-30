@@ -87,7 +87,8 @@ def main():
         choices=[
             questionary.Choice("📅 Totales diarios de flex credits", value="daily"),
             questionary.Choice("🤖 Desglose por modelo de lenguaje", value="by_model"),
-            questionary.Choice("🔄 Ambos análisis", value="both"),
+            questionary.Choice("📆 Resumen mensual (rango de meses)", value="monthly"),
+            questionary.Choice("🔄 Ambos análisis (diarios + modelo)", value="both"),
             questionary.Choice("❌ Salir", value="exit")
         ],
         style=custom_style
@@ -98,21 +99,79 @@ def main():
         return
     
     # Step 2: Choose date range type
-    date_range_type = questionary.select(
-        "¿Cómo quieres especificar el rango de fechas?",
-        choices=[
-            questionary.Choice("📆 Mes específico", value="month"),
-            questionary.Choice("📅 Rango personalizado", value="custom"),
-            questionary.Choice("⬅️  Volver", value="back")
-        ],
-        style=custom_style
-    ).ask()
+    if analysis_type == "monthly":
+        date_range_type = "month_range"
+    else:
+        date_range_type = questionary.select(
+            "¿Cómo quieres especificar el rango de fechas?",
+            choices=[
+                questionary.Choice("📆 Mes específico", value="month"),
+                questionary.Choice("📅 Rango personalizado", value="custom"),
+                questionary.Choice("⬅️  Volver", value="back")
+            ],
+            style=custom_style
+        ).ask()
     
     if date_range_type == "back" or date_range_type is None:
         return main()
     
     # Step 3: Get date parameters
-    if date_range_type == "month":
+    if date_range_type == "month_range":
+        # Choose year
+        current_year = datetime.now().year
+        year = questionary.text(
+            "¿Qué año?",
+            default=str(current_year),
+            validate=lambda x: x.isdigit() and 2020 <= int(x) <= 2030 or "❌ Año inválido (2020-2030)"
+        ).ask()
+        
+        if year is None:
+            return main()
+        
+        year = int(year)
+        
+        # Choose start month
+        months = [
+            "Enero (1)", "Febrero (2)", "Marzo (3)", "Abril (4)",
+            "Mayo (5)", "Junio (6)", "Julio (7)", "Agosto (8)",
+            "Septiembre (9)", "Octubre (10)", "Noviembre (11)", "Diciembre (12)"
+        ]
+        
+        start_month_choice = questionary.select(
+            "¿Mes inicial?",
+            choices=months,
+            style=custom_style
+        ).ask()
+        
+        if start_month_choice is None:
+            return main()
+        
+        start_month = int(start_month_choice.split("(")[1].rstrip(")"))
+        
+        # Choose end month
+        end_month_choice = questionary.select(
+            "¿Mes final?",
+            choices=months[start_month-1:],  # Only show months >= start month
+            style=custom_style
+        ).ask()
+        
+        if end_month_choice is None:
+            return main()
+        
+        end_month = int(end_month_choice.split("(")[1].rstrip(")"))
+        
+        # Calculate date range
+        start_date = datetime(year, start_month, 1).strftime("%Y-%m-%d")
+        if end_month == 12:
+            end_date = datetime(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = datetime(year, end_month + 1, 1) - timedelta(days=1)
+        end_date = end_date.strftime("%Y-%m-%d")
+        
+        print(f"\n✅ Rango seleccionado: {start_month_choice.split('(')[0].strip()} a {end_month_choice.split('(')[0].strip()} de {year}")
+        print(f"   ({start_date} a {end_date})")
+        
+    elif date_range_type == "month":
         # Choose year
         current_year = datetime.now().year
         year = questionary.text(
@@ -218,6 +277,8 @@ def main():
         print("📊 Análisis: Totales diarios")
     elif analysis_type == "by_model":
         print("📊 Análisis: Desglose por modelo")
+    elif analysis_type == "monthly":
+        print("📊 Análisis: Resumen mensual")
     else:
         print("📊 Análisis: Ambos (totales + por modelo)")
     
@@ -245,7 +306,25 @@ def main():
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
-    if analysis_type in ["daily", "both"]:
+    if analysis_type == "monthly":
+        print("📆 Ejecutando: Resumen mensual de credits\n")
+        cmd = [
+            sys.executable,
+            os.path.join(script_dir, "team_monthly_credits.py"),
+            "--start-date", start_date,
+            "--end-date", end_date,
+            "--workers", workers
+        ]
+        if json_file:
+            cmd.extend(["--json-file", json_file])
+        
+        result = subprocess.run(cmd)
+        
+        if result.returncode != 0:
+            print("\n❌ Error al ejecutar el análisis mensual")
+            return
+    
+    elif analysis_type in ["daily", "both"]:
         print("📊 Ejecutando: Totales diarios de flex credits\n")
         cmd = [
             sys.executable,

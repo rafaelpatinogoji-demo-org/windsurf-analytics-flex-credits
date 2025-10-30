@@ -209,6 +209,16 @@ def fetch_parallel(api_keys, start_date, end_date, max_workers=20):
     return all_items
 
 
+def safe_float(value):
+    """Safely convert value to float, handling None, '<nil>', empty strings, etc."""
+    if value is None or value == '' or value == '<nil>':
+        return 0.0
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def aggregate_by_date(items):
     """Aggregate items by date"""
     daily_data = defaultdict(lambda: {
@@ -222,8 +232,8 @@ def aggregate_by_date(items):
         if not date:
             continue
         
-        flex_credits = float(item.get("flex_credits_used", 0) or 0) / 100
-        prompt_credits = float(item.get("prompts_used", 0) or 0) / 100
+        flex_credits = safe_float(item.get("flex_credits_used")) / 100
+        prompt_credits = safe_float(item.get("prompts_used")) / 100
         
         daily_data[date]["total_flex_credits"] += flex_credits
         daily_data[date]["total_prompt_credits"] += prompt_credits

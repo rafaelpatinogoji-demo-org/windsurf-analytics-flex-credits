@@ -5,6 +5,9 @@
 output/*
 !output/.gitkeep
 
+# Rafa's analysis files
+rafa_analysis/
+
 # Python
 __pycache__/
 *.py[cod]
